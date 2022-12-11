@@ -1,31 +1,57 @@
 #!/usr/bin/env python3
 
-import argparse
+from argparse import ArgumentParser
 from flask import Flask, request
-from typing import List, Literal, Optional, TypedDict, Union
-import time
-import socket
-import ipaddress
-import urllib
+from os import environ
+from typing import List, Literal, Optional, TypedDict
+# import time
+# import socket
+# import ipaddress
+# import urllib
 
 ### Typing ###
 SUBCOMMAND = Literal['serve', 'request', 'ip']
 
 ReverbConfig = TypedDict('ReverbConfig', {
-    'subcommands': List[SUBCOMMAND],
+    'subcommands': Optional[List[SUBCOMMAND]],
     'port': int,
     'host': str,
     'debug': Optional[bool],
 })
 
+DEFAULTS: ReverbConfig = {
+    'subcommands': None,
+    'port': 33333,
+    'host': '0.0.0.0',
+    'debug': False,
+}
+
+ENV_PREFIX = 'REVERB_'
+
 def validate_config(config: ReverbConfig):
     if config['port'] < 1 or config['port'] >= 2**16:
         raise Exception("Listening port must be between 1 & 65535")
-    
-# Setup argparsers
-def parse_config():
+
+def parse_env(config: ReverbConfig) -> ReverbConfig:
+    config_envar = [f"{ENV_PREFIX}{k.upper()}" for k in DEFAULTS.keys()]
+    for var_name in config_envar:
+        var = environ.get(var_name)
+        if var:
+            config_key = var_name.removeprefix(ENV_PREFIX).lower()
+            match config_key:
+                case 'port': # int keys
+                    config[config_key] = int(var)
+                case 'debug': # bool keys
+                    config[config_key] = True
+                case 'subcommands': # ignore these cases
+                    break
+                case _: # The default str case
+                    config[config_key] = var
+    return config
+
+def parse_args(config: ReverbConfig) -> ReverbConfig:
     # Root argument parser
-    parser = argparse.ArgumentParser(prog='reverb',
+    parser = ArgumentParser(prog='reverb',
         description='HTTP echo/mirror client & server')
     subparsers = parser.add_subparsers(
         help='Commands to run reverb as server', dest='subcommands')
@@ -35,29 +61,40 @@ def parse_config():
         '--port',
         '-p',
         type=int,
-        default=33333,
-        help='Port for server to listen to (default: 33333)')
+        # default=DEFAULTS['port'],
+        help=f"Port for server to listen to (default: {DEFAULTS['port']})")
     server_parser.add_argument(
         '--host',
-        default='0.0.0.0',
-        help='Port for server to listen to (default: 0.0.0.0)')
+        # default=DEFAULTS['host'],
+        help=f"Host to listen to listens to self (default: {DEFAULTS['host']})")
     server_parser.add_argument(
         '--debug',
         # '-d',
         # type=bool,
-        default=False,
+        # default=DEFAULTS['debug'],
         action='store_true',
-        help='Run server in debug mode')
+        help=f"Run server in debug mode (defaults: {DEFAULTS['debug']}")
     # self.configs = self.parser.parse_args()
     args = parser.parse_args()
-    config: ReverbConfig = {
-        'subcommands': args.subcommands,
-        'port': args.port,
-        'host': args.host,
-        'debug': args.debug,
-    }
+    for key in args.__dict__:
+        if args.__dict__[key] is not None:
+            if args.__dict__[key] != DEFAULTS[key]:
+                config[key] = args.__dict__[key]
+
+    # config: ReverbConfig = {
+    #     'subcommands': args.subcommands,
+    #     'port': args.port,
+    #     'host': args.host,
+    #     'debug': args.debug,
+    # }
+    return config
+
+# Setup argparsers
+def parse_config() -> ReverbConfig:
+    config = parse_args(parse_env(DEFAULTS))
     validate_config(config)
     return config
+
 
 ### Flask ###
 # Create flask app

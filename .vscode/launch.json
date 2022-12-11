@@ -9,7 +9,8 @@
       "type": "python",
       "request": "launch",
       "program": "${workspaceFolder}/reverb.py",
-      "args": ["serve", "--port", "42069", "--debug"],
+      "args": ["serve",  "--debug"],
+      "env": {"REVERB_PORT": "42069"},
       "console": "integratedTerminal",
       "justMyCode": true
     },
