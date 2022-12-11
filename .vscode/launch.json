@@ -1,0 +1,46 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Python: Debug Server (port 42069)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/reverb.py",
+      "args": ["serve", "--port", "42069", "--debug"],
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: Reverb File",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/reverb",
+      "console": "integratedTerminal",
+      "justMyCode": true
+    },
+    {
+      "name": "Python: Reverb --help",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/reverb",
+      "console": "integratedTerminal",
+      "justMyCode": true,
+      "args": ["--help"]
+    },
+
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Cargo Launch",
+      "cargo": {
+        "args": ["build", "--bin=echo"]
+      },
+      "cwd": "${workspaceFolder}",
+      // "program": "${cargo:program}"
+      "args": ["12345"]
+    }
+  ]
+}
