@@ -1,11 +1,11 @@
 FROM python:3.10-alpine
 
-WORKDIR /app
+WORKDIR /server
 
-COPY requirements.txt .
+COPY server/requirements.txt .
 
 RUN pip install -r requirements.txt
 
-COPY reverb.py .
+COPY server/reverb-server.py .
 
-CMD ["python", "reverb.py", "serve"]
+CMD ["python", "reverb-server.py"]
