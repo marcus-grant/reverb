@@ -5,21 +5,39 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Python: Debug Server (port 42069)",
+      "name": "UNITEST reverb client",
       "type": "python",
       "request": "launch",
       "program": "${workspaceFolder}/reverb.py",
-      "args": ["serve",  "--debug"],
-      "env": {"REVERB_PORT": "42069"},
+      "args": ["ip"],
+      "justMyCode": true
+    },
+    {
+      "name": "Python: Debug Server (port 42069)",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/server/reverb-server.py",
+      "args": ["--debug"],
+      "env": { "REVERB_PORT": "42069" },
       "console": "integratedTerminal",
       "justMyCode": true
     },
     {
-      "name": "Python: Reverb File",
+      "name": "Python: Reverb Client ip command",
       "type": "python",
       "request": "launch",
-      "program": "${workspaceFolder}/reverb",
+      "program": "${workspaceFolder}/reverb.py",
       "console": "integratedTerminal",
+      "args": ["ip", "reverb.svartalv.net"],
+      "justMyCode": true
+    },
+    {
+      "name": "Python: Reverb Client ddns cloudflare command",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/reverb.py",
+      "console": "integratedTerminal",
+      "args": ["ddns", "cloudflare", "reverb.svartalv.net", "zoneid", "token"],
       "justMyCode": true
     },
     {

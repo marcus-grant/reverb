@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 from flask import Flask, request
+import logging
 from os import environ
 from typing import List, Literal, Optional, TypedDict
 from waitress import serve
@@ -34,8 +35,6 @@ def parse_env(config: ReverbServerConfig) -> ReverbServerConfig:
                     config[config_key] = int(var)
                 case 'debug': # bool keys
                     config[config_key] = True
-                case 'subcommands': # ignore these cases
-                    break
                 case _: # The default str case
                     config[config_key] = var
     return config
@@ -44,40 +43,29 @@ def parse_args(config: ReverbServerConfig) -> ReverbServerConfig:
     # Root argument parser
     parser = ArgumentParser(prog='reverb',
         description='HTTP echo/mirror client & server')
-    subparsers = parser.add_subparsers(
-        help='Commands to run reverb as server', dest='subcommands')
+    # subparsers = parser.add_subparsers(
+    #     help='Commands to run reverb as server', dest='subcommands')
     # Server subcommand argument parsers
-    server_parser = subparsers.add_parser('serve')
-    server_parser.add_argument(
+    # server_parser = subparsers.add_parser('serve')
+    parser.add_argument(
         '--port',
         '-p',
         type=int,
-        # default=DEFAULTS['port'],
         help=f"Port for server to listen to (default: {DEFAULTS['port']})")
-    server_parser.add_argument(
+    parser.add_argument(
         '--host',
-        # default=DEFAULTS['host'],
         help=f"Host to listen to listens to self (default: {DEFAULTS['host']})")
-    server_parser.add_argument(
+    parser.add_argument(
         '--debug',
-        # '-d',
-        # type=bool,
-        # default=DEFAULTS['debug'],
+        '-d',
         action='store_true',
         help=f"Run server in debug mode (defaults: {DEFAULTS['debug']}")
-    # self.configs = self.parser.parse_args()
     args = parser.parse_args()
     for key in args.__dict__:
         if args.__dict__[key] is not None:
             if args.__dict__[key] != DEFAULTS[key]:
                 config[key] = args.__dict__[key]
 
-    # config: ReverbServerConfig = {
-    #     'subcommands': args.subcommands,
-    #     'port': args.port,
-    #     'host': args.host,
-    #     'debug': args.debug,
-    # }
     return config
 
 # Setup argparsers
@@ -139,10 +127,8 @@ if __name__ == '__main__':
             use_reloader=config['debug'],
         )
     else:
+        # logger = logging.getLogger('waitress')
+        # TODO: Set config for logging level
+        # logger.setLevel(logging.INFO)
+        print(f"Starting production waitress server runner with config:\n{config}")
         serve(server, host=config['host'], port=config['port'])
-# @server.route('/')
-# def get_ip(self):
-#     """
-#     Instead of mirroring request entirely, get IP address of sender
-#     """
-#     print(self.request.headers)

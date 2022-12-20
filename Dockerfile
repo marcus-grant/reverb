@@ -1,11 +1,13 @@
 FROM python:3.10-alpine
 
-WORKDIR /server
+COPY server /server
 
-COPY server/requirements.txt .
+WORKDIR /server
 
 RUN pip install -r requirements.txt
 
 COPY server/reverb-server.py .
+
+EXPOSE 33333
 
 CMD ["python", "reverb-server.py"]
