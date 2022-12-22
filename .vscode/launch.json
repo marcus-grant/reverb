@@ -28,16 +28,29 @@
       "request": "launch",
       "program": "${workspaceFolder}/reverb.py",
       "console": "integratedTerminal",
-      "args": ["ip", "reverb.svartalv.net"],
+      "args": ["ip", "--server", "reverb.svartalv.net"],
       "justMyCode": true
     },
-    {
-      "name": "Python: Reverb Client ddns cloudflare command",
+    { // NOTE: Enter export REVERB_DDNS_AUTH="TOKENVALUE" in terminal
+      // ALSO enter REVERB_SERVER, REVERB_DDNS_SUBDOMAIN, &
+      // (REVERB_DDNS_DOMAIN or REVERB_DDNS_ZONEID)
+      "name": "Reverb Client: ddns list",
       "type": "python",
       "request": "launch",
       "program": "${workspaceFolder}/reverb.py",
       "console": "integratedTerminal",
-      "args": ["ddns", "cloudflare", "reverb.svartalv.net", "zoneid", "token"],
+      "args": ["ddns", "set"],
+      "justMyCode": true
+    },
+    { // NOTE: Enter export REVERB_DDNS_AUTH="TOKENVALUE" in terminal
+      // ALSO enter REVERB_SERVER, REVERB_DDNS_SUBDOMAIN, &
+      // (REVERB_DDNS_DOMAIN or REVERB_DDNS_ZONEID)
+      "name": "Reverb Client: ddns set",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/reverb.py",
+      "console": "integratedTerminal",
+      "args": ["ddns", "set", "--ddns-subdomain", "@"],
       "justMyCode": true
     },
     {

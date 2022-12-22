@@ -4,26 +4,15 @@ from dataclasses import dataclass, field
 import json
 from os import environ
 from typing import List, Literal, Optional, TypedDict, Union
+from urllib import error, parse
 from urllib.request import urlopen, Request
-import urllib.error
-
-@dataclass
-class DDNSProvider:
-    VALID_PROVIDERS = Literal['cloudflare']#, 'duck', 'bunny']
-    auth_token: str = field(default='')
-    auth_email: str = field(default='')
-    # domains: List[str]  # TODO in future, make this a seperate class for records
-    name: VALID_PROVIDERS = field(default='cloudflare')
 
 @dataclass(init=False)
-class ReverbClient:
-    ENV_PREFIX = 'REVERB_'
-    ENV_VARS = {'REVERB_SERVER', 'REVERB_AUTH',
-        'REVERB_EMAIL', 'REVERB_DOMAIN', 'REVERB_SUBDOMAIN'}
-    PROG_NAME = 'reverb'
+class ReverbOptions:
     PROG_DESC = 'HTTP echo/mirror utilities scripts'
-    VALID_SUBCMDS = Literal['ip', 'ddns']
-    VALID_DDNS_SUBCMDS = Literal['list', 'set']
+    ENV_VARS = {'REVERB_SERVER', 'REVERB_DDNS_AUTH', 'REVERB_DDNS_ZONEID',
+        'REVERB_DDNS_EMAIL', 'REVERB_DDNS_DOMAIN', 'REVERB_DDNS_SUBDOMAIN'}
+
     USAGES = {
         'ip': 'Send request to reverb server to discover client\'s public IP address',
         'ddns': 'Perform commands with respect to a (D)DNS provider',
@@ -32,38 +21,61 @@ class ReverbClient:
             "records for a domain if a --domain arg given"),
         'provider': ('DDNS provider to use ' +
             '[cloudflare|bunny|duck](default: cloudflare)'),
-        'domain': 'Domain name to apply dynamic DNS address to (default: blank)',
+        'ddns_domain': 'Domain name to apply dynamic DNS address to (default: blank)',
+        'ddns_zoneid': ('ZoneID for DDNS providers that' +
+            'provide IDs to their domains/zones'),
         'server': 'Reverb server URL/address to use (required)',
         'auth': "An API authentication token to use for commnads requiring it",
         'email': "A user email address to use with authentication if required",
-        'ddns-subdomain': "A subdomain or name to apply DDNS updates to (default: '@')"
+        'subdomain': "A subdomain or name to apply DDNS updates to (default: '@')"
     }
-    server: str
-    subcommands: VALID_SUBCMDS
-    ddns_subcommands: VALID_DDNS_SUBCMDS
-    provider: DDNSProvider = field(default_factory=DDNSProvider)
-    debug: bool = field(default=False)
-    domain: str = field(default='')
-    subdomain: str = field(default='@')
 
-    def __init__(self):
-        # defaults
-        self.debug = False
-        self.domain = ''
-        self.subdomain = '@'
-        self.provider = DDNSProvider()
-        self.parse_env()
-        self.argparser = None
-        self.parse_args()
-        # TODO: Add validate step
+    def __init__(self, envars=None, argv=None):
+        # Defaults
+        self.argparser: Optional[ArgumentParser] = None
+        self.root_subcmd: Literal['ip', 'ddns'] = 'ip'
+        self.ddns_subcmd: Optional[Literal['list', 'set']] = None
+        self.debug: bool = False
+        self.reverb_server: Optional[str] = None
+        self.ddns_provider: Literal['cloudflare'] = 'cloudflare'
+        self.ddns_auth: Optional[str] = None
+        self.ddns_email: Optional[str] = None
+        self.ddns_zoneid: Optional[str] = None
+        self.ddns_domain: Optional[str] = None
+        self.ddns_subdomain: Optional[str] = None
 
+        # First parse environment variables
+        self.parse_env(envars=envars)
+
+        # Then parse command arguments to override all previous assignments
+        self.parse_args(argv=argv)
+
+
+    def parse_env(self, envars=None):
+        for key in self.ENV_VARS:
+            if envars is None:
+                enval = environ.get(key)
+            else:
+                enval = envars[key]
+            if enval:
+                match key:
+                    case 'REVERB_SERVER': self.reverb_server = enval
+                    case 'REVERB_DDNS_AUTH': self.ddns_auth = enval
+                    case 'REVERB_DDNS_EMAIL': self.ddns_email = enval
+                    case 'REVERB_DDNS_DOMAIN': self.ddns_domain = enval
+                    case 'REVERB_DDNS_ZONEID': self.ddns_zoneid = enval
+                    case 'REVERB_DDNS_SUBDOMAIN': self.ddns_subdomain = enval
+                    case _:
+                        print(f"ERROR: The given environ var of key {key} is invalid")
+                        raise KeyError
+    
     def parse_args(self, argv=None):
         self.argparser = ArgumentParser(
-            prog=self.PROG_NAME, description=self.PROG_DESC)
+            prog='reverb', description=self.PROG_DESC)
 
         # Root subcommands
         subparsers = self.argparser.add_subparsers(
-            help='Reverb Subcommands', dest='subcommands')
+            help='Reverb Subcommands', dest='root_subcmd')
 
         # 'ip' subcommand subparser added to root of 'subparsers'
         parser_ip = subparsers.add_parser('ip', help=self.USAGES['ip'])
@@ -76,18 +88,20 @@ class ReverbClient:
         parser_ddns = subparsers.add_parser(
             'ddns', help=self.USAGES['ddns'])
         subparser_ddns = parser_ddns.add_subparsers(
-            help='DDNS Utilities Sub-Subcommand', dest='ddns_subcommands')
+            help='DDNS Utilities Sub-Subcommand', dest='ddns_subcmd')
         # 'list' sub-sub added to subcommand 'ddns'
         parser_ddns_list = subparser_ddns.add_parser(
             'list', help=self.USAGES['ddns-list'])
         # arguments for 'list' subsubcommand of ddns > list
         # TODO investigate if --server can be defined near root subcommand parser
         parser_ddns_list.add_argument('--server', '-s', 
-            required=True, help=self.USAGES['server'])
+            help=self.USAGES['server'])
         parser_ddns_list.add_argument(
             '--provider', '-p', help=self.USAGES['provider'])
         parser_ddns_list.add_argument(
-            '--domain', '-d', type=str, help=self.USAGES['domain'])
+            '--ddns-domain', '-d', type=str, help=self.USAGES['ddns_domain'])
+        parser_ddns_list.add_argument(
+            '--ddns-zone', '-z', type=str, help=self.USAGES['ddns_zoneid'])
         parser_ddns_list.add_argument(
             '--auth', '-a', type=str, help=self.USAGES['auth'])
         parser_ddns_list.add_argument(
@@ -97,13 +111,15 @@ class ReverbClient:
             'set', help=self.USAGES['ddns-set'])
         # TODO investigate if --server can be defined near root subcommand parser
         parser_ddns_set.add_argument('--server', '-s', 
-            required=True, help=self.USAGES['server'])
+            help=self.USAGES['server'])
         parser_ddns_set.add_argument(
             '--provider', '-p', help=self.USAGES['provider'])
         parser_ddns_set.add_argument(
-            '--domain', '-d', type=str, help=self.USAGES['domain'])
+            '--ddns-zone', '-z', type=str, help=self.USAGES['ddns_zoneid'])
         parser_ddns_set.add_argument(
-            '--subdomain', '-n', type=str, help=self.USAGES['subdomain'])
+            '--ddns-domain', '-d', type=str, help=self.USAGES['ddns_domain'])
+        parser_ddns_set.add_argument(
+            '--ddns-subdomain', '-n', type=str, help=self.USAGES['subdomain'])
         parser_ddns_set.add_argument(
             '--auth', '-a', type=str, help=self.USAGES['auth'])
         parser_ddns_set.add_argument(
@@ -116,60 +132,84 @@ class ReverbClient:
             args = self.argparser.parse_args(argv)
         # if not self.provider
         # provider = DDNSProvider()
-        for key in args:
+        for key in vars(args):
+            val = getattr(args, key)
+            if val is None:
+                continue
             match key:
-                case 'subcommands': self.subcommands = args[key]
-                case 'server': self.server = args[key]
-                case 'ddns_subcommands': self.ddns_subcommands = args[key]
-                case 'provider': self.provider.name = args[key]
-                case 'domain': self.domain = args[key]
-                case 'subdomain': self.subdomain = args[key]
-                case 'auth': self.provider.auth_token = args[key]
-                case 'email': self.provider.auth_email = args[key]
+                case 'root_subcmd': self.root_subcmd = val
+                case 'server': self.reverb_server = val
+                case 'ddns_subcmd': self.ddns_subcmd = val
+                case 'provider': self.ddns_provider = val
+                case 'ddns-zone': self.ddns_zoneid = val
+                case 'ddns-domain': self.ddns_domain = val
+                case 'ddns-subdomain': self.ddns_subdomain = val
+                case 'auth': self.ddns_auth = val
+                case 'email': self.ddns_email = val
                 case other:
                     print(f"ERROR: The given argparsed argument of key {key} is invalid")
                     raise KeyError
 
-    def parse_env(self, env=None):
-        for key in self.ENV_VARS:
-            if env is None:
-                enval = environ.get(key)
-            else:
-                enval = env[key]
-            if enval:
-                match key:
-                    case 'REVERB_SERVER': self.server = enval
-                    case 'REVERB_AUTH': self.provider.auth_token = enval
-                    case 'REVERB_EMAIL': self.provider.auth_email = enval
-                    case 'REVERB_DOMAIN': self.domain = enval
-                    case 'REVERB_SUBDOMAIN': self.subdomain = enval
-                    case other:
-                        print(f"ERROR: The given environ var of key {key} is invalid")
-                        raise KeyError
+@dataclass
+class RequestHandler:
+    url: str
+    method: Literal['GET', 'POST', 'PUT'] = field(default='GET', kw_only=True)
+    headers: dict = field(default=None, kw_only=True)
+    data: Optional[dict] = field(default=None, kw_only=True)
+
+    def validate_url_schema(self):
+        if not ('https://' in self.url or 'http://' in self.url):
+            self.url = f"https://{self.url}"
     
-    def reverb_request_handler(self):
-        url = self.server
-        if (not 'https://' in url) or (not 'http://' in url):
-            url = f"https://{url}"
-        headers = {'Accept': 'application/json'}
+    def encode_data(self):
+        self.data = json.dumps(self.data)
+        self.data = str(self.data)
+        self.data = self.data.encode('utf-8')
+
+    def request_data(self):
+        self.validate_url_schema()
+        if self.headers is None:
+            self.headers = {'Accept': 'application/json'}
         ip = None
-        req = Request(url, headers=headers)
+        req = None
+        if self.data is None:
+            req = Request(self.url,
+                headers=self.headers,
+                method=self.method)
+        else:
+            self.encode_data()
+            req = Request(self.url,
+                headers=self.headers,
+                method=self.method,
+                data=self.data)
         try:
             with urlopen(req) as res:
-                body = None
+                payload = None
                 try:
-                    body = json.loads(res.read().decode())
+                    payload = json.loads(res.read().decode())
                 except json.JSONDecodeError:
                     print("Error decoding JSON from reverb server")
                     print("The response:")
                     print(res.read().decode())
                     exit(201)
-                return body
-        except urllib.error.HTTPError as e:
-            # body = json.load(res.read().decode())
-            print(f"Error making request to server {url}")
+                return payload
+        except error.HTTPError as e:
+            print(f"Error making request to server {self.url}")
             print(e)
             exit(200)
+    
+
+class ReverbClient:
+    def __init__(self, envars=None, argv=None):
+        self.opts = ReverbOptions(envars=envars, argv=argv)
+        self.ddns_provider = DDNSProvider(self.opts)
+
+    def reverb_request_handler(self):
+        url = self.opts.reverb_server
+        headers = {'Accept': 'application/json'}
+        req = RequestHandler(url, headers=headers)
+        payload = req.request_data()
+        return payload
 
     def get_public_ip(self) -> Optional[str]:
         res_dict = self.reverb_request_handler()
@@ -188,119 +228,131 @@ class ReverbClient:
                 break
         return ip
 
-    def list_provider_domains(self):
-        pass
-
-    def list_provider_domain_records(self):
-        pass
-
-    def set_provider_ddns_record(self):
-        pass
-
     def execute(self):
         # First determine first level of subcommands
-        if self.subcommands == 'ip':
+        if self.opts.root_subcmd == 'ip':
             # If 'ip' subcommand used, run the get_public_ip method
-            self.get_public_ip()
-        elif self.subcommands == 'ddns':
+            ip = self.get_public_ip()
+            print(f"Your public IP address is: {ip}")
+            exit(0)
+        elif self.opts.root_subcmd == 'ddns':
             # If 'ddns' subcommand used, check for the next layer of subcommands
-            if self.ddns_subcommands == 'list':
-                if self.domain == '':
-                    self.list_provider_domains()
-                else:
-                    self.list_provider_domain_records()
-            elif self.ddns_subcommands == 'set':
-                self.set_provider_ddns_record()
+            if self.opts.ddns_subcmd == 'list':
+                if self.ddns_provider.subdomain is None:
+                    # If no subdomain is provided, assume listing zone records
+                    zones = self.ddns_provider.list_zones()
+                    print("Here are the zones configured for provider:")
+                    print(json.dumps(zones, indent=2))
+                    exit(0)
+                # If there is a subdomain given then get the records for it
+                records = self.ddns_provider.list_zone_records()
+                print(f"Here are the records for {self.ddns_provider.domain}:")
+                print(json.dumps(records, indent=2))
+                exit(0)
+            elif self.opts.ddns_subcmd == 'set':
+                ip = self.get_public_ip()
+                result = self.ddns_provider.set_record(ip)
+                print("Successfuly updated url URLHERE to point to IPHERE")
+                print(json.dumps(result, indent=2))
             else:
                 self.argparser.error("Invalid subcommand given after 'ddns' subcommand")
         else:
             self.argparser.error("Error, invalid subcommand given")
 
+class DDNSProvider:
+    # TODO: Should be an abstract or have abstract methods to subclass
+    def __init__(self, opts: ReverbOptions):
+        self.name: Literal['cloudflare'] = opts.ddns_provider
+        self.auth_token: Optional[str] = opts.ddns_auth
+        self.auth_email: Optional[str] = opts.ddns_email
+        self.zoneid: Optional[str] = opts.ddns_zoneid
+        self.domain: Optional[str] = opts.ddns_domain
+        self.subdomain: Optional[str] = opts.ddns_subdomain
+        self.recordid: Optional[str] = None
+        self.payload_zones: Optional[dict] = None
+    
+    def get_url(self):
+        # TODO: This needs changing for other DNS providers
+        return 'https://api.cloudflare.com/client/v4/zones'
+    
+    def cloudflare_request_handler(self, url, data=None, method='GET'):
+        headers = {
+            'Accept': 'application/json',
+            'Authorization': f"Bearer {self.auth_token}"
+        }
+        req = RequestHandler(url, method=method, headers=headers, data=data)
+        payload = req.request_data()
+        return payload
 
+    def list_zones(self):
+        url = self.get_url()
+        payload = self.cloudflare_request_handler(url)
+        self.payload_zones = payload['result']
+        return self.payload_zones
+
+    def list_zone_records(self):
+        # If no domain or zoneid given, we can't search a domain
+        if self.domain is None and self.zoneid is None:
+            print(("Options Error: Can't search for a zone/domain record without"
+                + "specifying a zone or domain!"))
+            exit(210)
+        # If a zoneid isn't given but a domain name is, 
+        if self.zoneid is None:
+            # we have to list zones and search for a domain in there
+            zones = self.list_provider_domains()
+            for zone in zones:
+                # Found the zone with the domain in it
+                if self.domain in zone['name']:
+                    self.zoneid = zone['id']
+            print(("Options Error: Couldn't find a zone " +
+                f"with domain name {self.domain}!"))
+            exit(211)
         
-# Handle configs and call appropriate functions
-# def config_subcommands_handler(config: ReverbClientConfig):
-#     if config['debug']:
-#         print('Inside config_subcommands_handler with config...')
-#         print(config)
-#     subcommands = config['subcommands']
-#     match subcommands:
-#         case 'ip':
-#             ip = get_public_ip(config)
-#             if not ip is None:
-#                 print(ip)
-#                 exit(0)
-#             else:
-#                 print_ip_fail(config, ip)
-#                 exit(1)
-#         case 'ddns':
-#             ip = get_public_ip(config)
-#             if not ip is None:
-#                 msg = set_ddns(config, ip)
-#                 if 'SUCCESS' in msg:
-#                     print(msg)
-#                     exit(0)
-#                 print('Problem setting DDNS record in cloudflare, response:')
-#                 print(msg)
-#                 exit(4)
-#             print("ERROR getting public IP, quiting")
-#             exit(1)
-#         case _:
-#             raise ValueError('Error in parsing subcommands!')
-
-# def validate_config_hostname(config: ReverbClientConfig) -> str:
-#     hostname = config['hostname']
-#     if not 'http://' in hostname or not 'https://' in hostname:
-#         hostname = f"https://{hostname}"
-#     return hostname
+        # By now we know a zoneid exists
+        # So list the records for that zoneid
+        url = f"{self.get_url()}/{self.zoneid}/dns_records"
+        payload = self.cloudflare_request_handler(url)
+        payload_records = payload['result']
+        self.domain = payload_records[0]['zone_name']
+        return payload_records
+    
+    def get_subdomain_record(self):
+        zone_records = self.list_zone_records()
+        # If subdomain is root ie "@", then on cloudflare...
+        # the zone_name is going to be the same as the record name
+        is_root = False
+        if self.subdomain == '@':
+            is_root = True
+        for record in zone_records:
+            record_name = record['name']
+            if is_root:
+                if self.domain in record_name:
+                    self.recordid = record['id']
+                    return record
+            else:
+                if self.subdomain in record_name:
+                    self.recordid = record['id']
+                    return record
+        print("Provider Error, no record for that subdomain found")
+        print("Here are the records available:")
+        print(zone_records)
+        exit(220)
 
 
-# def print_ip_fail(config: ReverbClientConfig):
-#     print("IP was not retrieved from this reverb server")
-#     print("Here is the ReverbClientConfig for debugging")
-#     print(config)
-#     exit(2)
-
-# # TODO: Add config params for subdomain (name), ttl
-# # TODO: Break this up into individual functions for each DNS provider
-# def set_ddns(config: ReverbClientConfig, ip: str) -> str:
-#     # look here for API details
-#     # https://developers.cloudflare.com/api/operations/dns-records-for-a-zone-create-dns-record
-#     zoneid = config['zoneid']
-#     auth = config['auth']
-#     url = f"https://api.cloudflare.com/client/v4/zones/{zoneid}/dns_records"
-#     headers = {
-#         'Content-Type': 'application/json',
-#         'Authorization': f"Bearer {auth}"
-#     }
-#     data = {
-#         'type': 'A',
-#         'comment': 'DDNS A record set',
-#         'content': str(ip),
-#         'proxied': False,
-#         'name': '@',
-#         'ttl': 300,
-
-#     }
-#     req_data = json.dumps(data).encode()
-#     req = Request(url, method='POST', headers=headers, data=req_data)
-#     try:
-#         with urlopen(req) as res:
-#             body = json.load(res.read().decode())
-#             return f"SUCCESS with body {body}"
-#     except urllib.error.HTTPError as e:
-#         # body = json.load(res.read().decode())
-#         return str(e)
-#     # with urlopen(req) as res:
-#     #     if res.status == 200:
-#     #         return 'SUCCESS'
-#     #     elif res.status in range(400, 500):
-#     #         body = json.load(res.read().decode())
-#     #         return f"FAIL: {body}"
-#     #     else:
-#     #         print("ERROR: Invalid cloudflare response code, exiting")
-#     #         exit(3)
-
+    def set_record(self, content, type='A', proxied=False, ttl=300):
+        self.get_subdomain_record()
+        url = f"{self.get_url()}/{self.zoneid}/dns_records/{self.recordid}"
+        data = {
+            'name': self.subdomain,
+            'type': type,
+            'content': content,
+            'proxied': False,
+            'ttl': ttl,
+        }
+        payload = self.cloudflare_request_handler(
+            url, method='PUT', data=data)
+        return payload
+        
 def main():
     # Parse the args
     # config: ReverbClientConfig = parse_config()
