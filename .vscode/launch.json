@@ -4,6 +4,7 @@
   // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
   "version": "0.2.0",
   "configurations": [
+
     {
       "name": "UNITEST reverb client",
       "type": "python",
@@ -39,7 +40,7 @@
       "request": "launch",
       "program": "${workspaceFolder}/reverb.py",
       "console": "integratedTerminal",
-      "args": ["ddns", "set"],
+      "args": ["ddns", "list"],
       "justMyCode": true
     },
     { // NOTE: Enter export REVERB_DDNS_AUTH="TOKENVALUE" in terminal
